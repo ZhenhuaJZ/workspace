@@ -1,0 +1,31 @@
+
+
+main(){
+ros::NodeHandle nh;
+    std::cout << "node created" << std::endl;
+    image_transport::ImageTransport tsp(nh);
+    std::cout << "ImageTransport channel opened" << std::endl;
+
+    image_transport::Subscriber sub = tsp.subscribe("map_image/full", 1, imageCallback);
+    std::cout << "map_image/full subscribed" << std::endl;
+
+}
+
+void imageCallback(const sensor_msgs::ImageConstPtr& msg)
+{
+    try
+    {
+        // if the image is color then choose it as color, else mono color
+        if (sensor_msgs::image_encodings::isColor(msg->encoding))
+            ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
+        else
+            ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::MONO8);
+    }
+    catch (cv_bridge::Exception& e)
+    {
+      ROS_ERROR("cv_bridge exception: %s", e.what());
+      return;
+    }
+
+    mat.push_back(ptr->image);
+}
