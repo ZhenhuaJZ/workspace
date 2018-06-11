@@ -13,7 +13,7 @@ int main(int argc, char **argv)
     FrontierExploration *frontierPtr = &frontier;
     std::cout << "Frontier pointer created" << std::endl;
 
-    std::thread frontierProcessThread(&FrontierExploration::calculateFrontier, frontierPtr);
+    std::thread frontierProcessThread(&FrontierExploration::processFrontier, frontierPtr);
     std::thread goalPoseProcessThread(&FrontierExploration::calculateGoalPose, frontierPtr);
 
     ros::spin();

@@ -1,0 +1,46 @@
+/*!
+
+*/
+
+// without this gap between two doxygen definition, the last group does not get
+// populated properly for some reason.
+
+/*!
+@mainpage Threading, Synchronisation and Data Integrity
+
+@section ac_doc_index_more_info Where to start
+
+- Compile and run the program
+- Read through class definition
+
+@section ac_doc_install Installation
+
+@subsection ac_doc_step1 Step 1: Make a build folder
+
+Make a directory name 'build' in the source file
+
+@subsection ac_doc_step2 Step 2: Run cmake
+
+Navigate to the build folder from terminal and run:
+
+  \verbatim
+./build$ cmake ..
+  \endverbatim
+    
+@subsection ac_doc_step3 Step 3: Run make
+
+Make an executable of the source file, run the following:
+
+  \verbatim
+./build$ make
+  \endverbatim
+
+@subsection ac_doc_step4 Step 4: Run executable
+
+Run the executable to execute the program by run the following:
+
+  \verbatim
+./build$ ./Assignment3_ZHZ
+  \endverbatim
+
+*/

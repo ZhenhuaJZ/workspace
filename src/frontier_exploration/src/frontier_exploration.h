@@ -19,6 +19,12 @@
 #include <mutex>
 #include <chrono>
 
+/*!
+ * \brief The FrontierExploration class receives OgMap and odom informations and
+ * calculate the frontier cell base on the OgMap, hence compute a goal pose which
+ * the robot will head to.
+ */
+
 class FrontierExploration
 {
 private:
@@ -41,7 +47,6 @@ private:
         double y;
         double yaw;
     };
-
     OgPose ogMapGoalPose_;
     OgPose robotGoalPose_;
 
@@ -51,20 +56,51 @@ private:
         std::mutex mtx;
     };
     PoseDataBuffer poseBuffer;
-    cv::Mat ogMap_;
 
+    std::deque<OgPose> frontierCells_;
 
 public:
+    /*!
+     * \brief FrontierExploration takes a node handle and subscribe and advertises topics
+     * \param node ros node handler
+     */
     FrontierExploration(ros::NodeHandle node);
 
+    /*!
+     * \brief FrontierExploration destructor
+     */
     ~FrontierExploration();
 
+    /*!
+     * \brief odomCallBack receive topic message from the subscribed topic.
+     * This function subscribed to topic "odom"
+     * \param msg odom message receive from topic
+     */
     void odomCallBack(const nav_msgs::OdometryConstPtr& msg);
 
+    /*!
+     * \brief imageCallback receives topic message from the subscribed topic.
+     * imageCallback is subscribed to topic "map_image/full"
+     * \param msg image message receive from topic
+     */
     void imageCallback(const sensor_msgs::ImageConstPtr& msg);
 
-    void calculateFrontier();
+    /*!
+     * \brief processFrontier is a function to process all the frontier cells.
+     * It compute and display the image of fontier cell
+     */
+    void processFrontier();
 
+    /*!
+     * \brief computeFontierCell receives the ogMap obtain from imageCallback and compute all the frontier cells.
+     * All the frontier cells are stored inside a container.
+     * \param ogMap Mono image containing information of the map seen by robot
+     * \return Goal pose in reference to the ogMap
+     */
+    OgPose computeFontierCell(cv::Mat ogMap);
+    /*!
+     * \brief calculateGoalPose calculates the goal x y and yaw pose in reference the robot
+     */
     void calculateGoalPose();
 };
 
