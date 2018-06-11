@@ -23,8 +23,18 @@ struct goal_pose
 {
     int x = 0;
     int y = 0;
-    int dist = 999;
+    double yaw = 0;
+    double dist = 999;
 };
+
+struct currentPos
+{
+    int x = 0;
+    int y = 0;
+    double yaw = 0;
+};
+
+currentPos currentPose;
 
 void imageCallback(const sensor_msgs::ImageConstPtr& msg)
 {
@@ -54,7 +64,7 @@ void imageCallback(const sensor_msgs::ImageConstPtr& msg)
     cv::Mat frontier_map = map.clone();
 
     frontier_map = 255;
-    goal_pose gPose;
+    goal_pose ogGoalCoodi;
     int min_dist = 9999;
     // Find column frontier cell
     for(int i = 0; i < map.rows; i++)
@@ -66,13 +76,13 @@ void imageCallback(const sensor_msgs::ImageConstPtr& msg)
             if((prev != current) && current != 0 && prev != 0)
             {
                 frontier_map.at<uchar>(i,j) = 0;
-                int dist = sqrt(pow((100-i),2) + pow((100-j),2));
-                std::cout << "distance:" << dist << std::endl;
+                double dist = sqrt(pow((100-i),2) + pow((100-j),2));
+//                std::cout << "distance:" << dist << std::endl;
                 if(dist < min_dist)
                 {
-                    gPose.x = i;
-                    gPose.y = j;
-                    gPose.dist = dist;
+                    ogGoalCoodi.x = j;
+                    ogGoalCoodi.y = i;
+                    ogGoalCoodi.dist = dist;
                     min_dist = dist;
                 }
             }
@@ -80,22 +90,22 @@ void imageCallback(const sensor_msgs::ImageConstPtr& msg)
         }
     }
 
-//     Find column frontier cell
-    for(int j = 0; j < map.rows; j++)
+//     Find rows frontier cell
+    for(int j = 0; j < map.cols; j++)
     {
         int prev = 0;
-        for(int i = 0; i < map.cols; i++)
+        for(int i = 0; i < map.rows; i++)
         {
             int current = map.at<uchar>(i,j);
             if((prev != current) && current != 0 && prev != 0)
             {
                 frontier_map.at<uchar>(i,j) = 0;
-                int dist = sqrt(pow((100-i),2) + pow((100-j),2));
+                double dist = sqrt(pow((100-i),2) + pow((100-j),2));
                 if(dist < min_dist)
                 {
-                    gPose.x = i;
-                    gPose.y = j;
-                    gPose.dist = dist;
+                    ogGoalCoodi.x = j;
+                    ogGoalCoodi.y = i;
+                    ogGoalCoodi.dist = dist;
                     min_dist = dist;
                 }
             }
@@ -103,11 +113,25 @@ void imageCallback(const sensor_msgs::ImageConstPtr& msg)
         }
     }
 
-    std::cout << "goal pose x:" << gPose.x << " y:" << gPose.y << std::endl;
+//    double yaw = atan2(100-gPose.y,100-gPose.x);
+    std::cout << "og map goal coordinate x:" << ogGoalCoodi.x << " y:" << ogGoalCoodi.y <<  std::endl;
     cv::Point pt;
-    pt.y = gPose.x;
-    pt.x = gPose.y;
-    cv::circle(frontier_map, pt, 10, 0,2);
+    pt.y = ogGoalCoodi.y;
+    pt.x = ogGoalCoodi.x;
+    cv::Point robotPos;
+
+    goal_pose goalPose;
+    goalPose.x = ogGoalCoodi.x - 100;
+    goalPose.y = 100 - ogGoalCoodi.y;
+    goalPose.yaw = atan2(goalPose.y,goalPose.x);
+    std::cout << "(robot reference) goal pose x:"<< goalPose.x << " y:" << goalPose.y << " yaw:" << goalPose.yaw << "," << goalPose.yaw * 180/3.1415 << std::endl;
+
+
+
+    robotPos.x = 100;
+    robotPos.y = 100;
+    cv::circle(frontier_map, pt, 10, 0,1);
+    cv::circle(frontier_map,robotPos,3,0,3);
     cv::imshow("frontier_map", frontier_map);
     cv::waitKey(5);
     // modify cells in image
@@ -120,10 +144,10 @@ void imageCallback(const sensor_msgs::ImageConstPtr& msg)
 void odomCallBack(const nav_msgs::OdometryConstPtr& msg)
 {
     geometry_msgs::Pose pose = msg->pose.pose;
-    double x = pose.position.x;
-    double y = pose.position.y;
-    double yaw = tf::getYaw(pose.orientation);
-//    cout << "odom returned attributes: x = " << x << ", y = " << y << ", yaw = " << yaw << endl;
+    currentPose.x = pose.position.x;
+    currentPose.y = pose.position.y;
+    currentPose.yaw = tf::getYaw(pose.orientation);
+    cout << "odom returned attributes: x = " << currentPose.x << ", y = " << currentPose.y << ", yaw = " << currentPose.yaw << endl;
 }
 
 int main(int argc, char **argv)
