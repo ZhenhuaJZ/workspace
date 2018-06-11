@@ -1,176 +1,150 @@
-#include <iostream>
-#include "ros/ros.h"
-#include "std_msgs/String.h"
-#include "tf/transform_datatypes.h"
-
-#include "sensor_msgs/image_encodings.h"
-#include "nav_msgs/Odometry.h"
-#include <opencv2/imgproc/imgproc.hpp>
-#include <image_transport/image_transport.h>
-#include <opencv2/highgui/highgui.hpp>
-#include <cv_bridge/cv_bridge.h>
-
-#include <deque>
-#include <math.h>
+#include "frontier_exploration.h"
 
 using namespace std;
 
-deque<cv::Mat> mat;
-
-cv_bridge::CvImagePtr ptr;
-
-struct goal_pose
+FrontierExploration::FrontierExploration(ros::NodeHandle node)
+    : nodeHandle_(node), imgTrans_(node)
 {
-    int x = 0;
-    int y = 0;
-    double yaw = 0;
-    double dist = 999;
-};
+    imgTransSub_ = imgTrans_.subscribe("map_image/full", 1, &FrontierExploration::imageCallback,this);
+    odomSub_ = nodeHandle_.subscribe("odom", 1000, &FrontierExploration::odomCallBack,this);
+}
 
-struct currentPos
+
+FrontierExploration::~FrontierExploration()
 {
-    int x = 0;
-    int y = 0;
-    double yaw = 0;
-};
+    cv::destroyAllWindows();
+}
 
-currentPos currentPose;
+void FrontierExploration::calculateGoalPose()
+{
+    std::mutex mtx;
+    while(ros::ok())
+    {
+        std::unique_lock<std::mutex> lck(mtx);
+        // Display goal coordinate in reference of OgMap
+        std::cout << "og map goal coordinate x:" << ogMapGoalPose_.x << " y:" << ogMapGoalPose_.y <<  std::endl;
 
-void imageCallback(const sensor_msgs::ImageConstPtr& msg)
+        robotGoalPose_.x = ogMapGoalPose_.x - 100;
+        robotGoalPose_.y = 100 - ogMapGoalPose_.y;
+        robotGoalPose_.yaw = atan2(robotGoalPose_.y,robotGoalPose_.x);
+        std::cout << "(robot reference) goal pose x:"<< robotGoalPose_.x << " y:" << robotGoalPose_.y << " yaw:"
+                  << robotGoalPose_.yaw << ", " << robotGoalPose_.yaw * 180/3.1415 << " Degree"<< std::endl;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+}
+
+
+void FrontierExploration::calculateFrontier()
+{
+    // Continuously calculate the frontier cell and pose
+    while(ros::ok())
+    {
+        if(imgBuffer_.imgBuffer.size()){
+            imgBuffer_.imgMtx.lock();
+            cv::Mat map = imgBuffer_.imgBuffer.front();
+            imgBuffer_.imgMtx.unlock();
+            // Clone a copy of map to frontier_map
+            cv::Mat frontier_map = map.clone();
+
+            // set frontier map image to white
+            frontier_map = 255;
+            int min_dist = 9999;
+            // Iterate each row pixels to find frontier cell
+            for(int i = 0; i < map.rows; i++)
+            {
+                double prev = 0;
+                for(int j = 0; j < map.cols; j++)
+                {
+                    int current = map.at<uchar>(i,j);
+                    // If the previous cell and current cell are both not the same and not dark cell, then it is a frontier cell
+                    if((prev != current) && current != 0 && prev != 0)
+                    {
+                        frontier_map.at<uchar>(i,j) = 0;
+                        double dist = sqrt(pow((100-i),2) + pow((100-j),2));
+                        if(dist < min_dist)
+                        {
+                            // Temporarily store the shortest distance ogMap coordinate
+                            ogMapGoalPose_.x = j;
+                            ogMapGoalPose_.y = i;
+                            min_dist = dist;
+                        }
+                    }
+                    prev = current;
+                }
+            }
+
+            //     Find rows frontier cell
+            for(int j = 0; j < map.cols; j++)
+            {
+                double prev = 0;
+                for(int i = 0; i < map.rows; i++)
+                {
+                    int current = map.at<uchar>(i,j);
+                    if((prev != current) && current != 0 && prev != 0)
+                    {
+                        frontier_map.at<uchar>(i,j) = 0;
+                        double dist = sqrt(pow((100-i),2) + pow((100-j),2));
+                        if(dist < min_dist)
+                        {
+                            // Temporarily store the shortest distance ogMap coordinate
+                            ogMapGoalPose_.x = j;
+                            ogMapGoalPose_.y = i;
+                            min_dist = dist;
+                        }
+                    }
+                    prev = current;
+                }
+            }
+            cv::Point pt;
+            pt.x = ogMapGoalPose_.x;
+            pt.y = ogMapGoalPose_.y;
+            cv::Point robotPos;
+            robotPos.x = 100;
+            robotPos.y = 100;
+            cv::circle(frontier_map, pt, 10, 0,1);
+            cv::circle(frontier_map,robotPos,3,0,3);
+            cv::imshow("frontier_map", frontier_map);
+            cv::waitKey(5);
+            cv::imshow("ogMap", map);
+            cv::waitKey(5);
+        }
+    }
+}
+
+void FrontierExploration::imageCallback(const sensor_msgs::ImageConstPtr& msg)
 {
     try
     {
         // if the image is color then choose it as color, else mono color
         if (sensor_msgs::image_encodings::isColor(msg->encoding))
-            ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
+            cvImgPtr_ = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
         else
-            ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::MONO8);
+            cvImgPtr_ = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::MONO8);
     }
+    // If exception has occurred, return
     catch (cv_bridge::Exception& e)
     {
-      ROS_ERROR("cv_bridge exception: %s", e.what());
-      return;
+        ROS_ERROR("cv_bridge exception: %s", e.what());
+        return;
     }
 
-    mat.push_back(ptr->image);
-    if(mat.size())
-    {
-        cv::imshow("window", mat.front());
-        cv::waitKey(5);
-    }
-
-    // calculate row frontier cells
-    cv::Mat map = mat.front();
-    cv::Mat frontier_map = map.clone();
-
-    frontier_map = 255;
-    goal_pose ogGoalCoodi;
-    int min_dist = 9999;
-    // Find column frontier cell
-    for(int i = 0; i < map.rows; i++)
-    {
-        int prev = 0;
-        for(int j = 0; j < map.cols; j++)
-        {
-            int current = map.at<uchar>(i,j);
-            if((prev != current) && current != 0 && prev != 0)
-            {
-                frontier_map.at<uchar>(i,j) = 0;
-                double dist = sqrt(pow((100-i),2) + pow((100-j),2));
-//                std::cout << "distance:" << dist << std::endl;
-                if(dist < min_dist)
-                {
-                    ogGoalCoodi.x = j;
-                    ogGoalCoodi.y = i;
-                    ogGoalCoodi.dist = dist;
-                    min_dist = dist;
-                }
-            }
-            prev = current;
-        }
-    }
-
-//     Find rows frontier cell
-    for(int j = 0; j < map.cols; j++)
-    {
-        int prev = 0;
-        for(int i = 0; i < map.rows; i++)
-        {
-            int current = map.at<uchar>(i,j);
-            if((prev != current) && current != 0 && prev != 0)
-            {
-                frontier_map.at<uchar>(i,j) = 0;
-                double dist = sqrt(pow((100-i),2) + pow((100-j),2));
-                if(dist < min_dist)
-                {
-                    ogGoalCoodi.x = j;
-                    ogGoalCoodi.y = i;
-                    ogGoalCoodi.dist = dist;
-                    min_dist = dist;
-                }
-            }
-            prev = current;
-        }
-    }
-
-//    double yaw = atan2(100-gPose.y,100-gPose.x);
-    std::cout << "og map goal coordinate x:" << ogGoalCoodi.x << " y:" << ogGoalCoodi.y <<  std::endl;
-    cv::Point pt;
-    pt.y = ogGoalCoodi.y;
-    pt.x = ogGoalCoodi.x;
-    cv::Point robotPos;
-
-    goal_pose goalPose;
-    goalPose.x = ogGoalCoodi.x - 100;
-    goalPose.y = 100 - ogGoalCoodi.y;
-    goalPose.yaw = atan2(goalPose.y,goalPose.x);
-    std::cout << "(robot reference) goal pose x:"<< goalPose.x << " y:" << goalPose.y << " yaw:" << goalPose.yaw << "," << goalPose.yaw * 180/3.1415 << std::endl;
-
-
-
-    robotPos.x = 100;
-    robotPos.y = 100;
-    cv::circle(frontier_map, pt, 10, 0,1);
-    cv::circle(frontier_map,robotPos,3,0,3);
-    cv::imshow("frontier_map", frontier_map);
-    cv::waitKey(5);
-    // modify cells in image
-    if(mat.size()>2)
-    {
-        mat.pop_front();
-    }
+    // Lock and push back cv::Mat image data
+    imgBuffer_.imgMtx.lock();
+    imgBuffer_.imgBuffer.push_back(cvImgPtr_->image);
+    if(imgBuffer_.imgBuffer.size() > 2)
+        imgBuffer_.imgBuffer.pop_front();
+    imgBuffer_.imgMtx.unlock();
 }
 
-void odomCallBack(const nav_msgs::OdometryConstPtr& msg)
+void FrontierExploration::odomCallBack(const nav_msgs::OdometryConstPtr& msg)
 {
     geometry_msgs::Pose pose = msg->pose.pose;
+    OgPose currentPose;
     currentPose.x = pose.position.x;
     currentPose.y = pose.position.y;
     currentPose.yaw = tf::getYaw(pose.orientation);
-    cout << "odom returned attributes: x = " << currentPose.x << ", y = " << currentPose.y << ", yaw = " << currentPose.yaw << endl;
-}
-
-int main(int argc, char **argv)
-{
-
-    ros::init(argc, argv, "frontier_exploration");
-
-    ros::NodeHandle nh;
-    std::cout << "node created" << std::endl;
-    image_transport::ImageTransport tsp(nh);
-    std::cout << "ImageTransport channel opened" << std::endl;
-
-    image_transport::Subscriber sub = tsp.subscribe("map_image/full", 1, imageCallback);
-    std::cout << "map_image/full subscribed" << std::endl;
-
-    ros::Subscriber sub2 = nh.subscribe("odom", 1000, odomCallBack);
-    std::cout << "odom subscribed" << std::endl;
-
-    ros::spin();
-
-    ros::shutdown();
-
-    cv::destroyAllWindows();
-
-    std::cout << "quack" << std::endl;
+    poseBuffer.mtx.lock();
+    poseBuffer.buffer.push_back(currentPose);
+    poseBuffer.mtx.unlock();
+    //    cout << "odom returned attributes: x = " << currentPose.x << ", y = " << currentPose.y << ", yaw = " << currentPose.yaw << endl;
 }

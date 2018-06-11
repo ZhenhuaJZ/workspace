@@ -17,6 +17,9 @@ find_package(catkin REQUIRED COMPONENTS
 )
 
 find_package(OpenCV REQUIRED)
+find_package(Threads)
+
+SET(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} "-std=c++11 -pthread")
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
@@ -133,7 +136,7 @@ include_directories(${OpenCV_INCLUDE_DIRS})
 # )
 
 
-add_executable(exploration src/frontier_exploration.cpp)
+add_executable(exploration src/exploration.cpp src/frontier_exploration.cpp)
 #add_executable(test src/test.cpp)
 
 target_link_libraries(exploration ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
