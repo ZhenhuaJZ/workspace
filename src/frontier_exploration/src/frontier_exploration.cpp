@@ -1,18 +1,26 @@
 #include "frontier_exploration.h"
 
-using namespace std;
-
 FrontierExploration::FrontierExploration(ros::NodeHandle node)
     : nodeHandle_(node), imgTrans_(node)
 {
     imgTransSub_ = imgTrans_.subscribe("map_image/full", 1, &FrontierExploration::imageCallback,this);
     odomSub_ = nodeHandle_.subscribe("odom", 1000, &FrontierExploration::odomCallBack,this);
+    pathSub_ = nodeHandle_.subscribe("path", 20, &FrontierExploration::pathCallback,this);
+    imageFbePublisher_ = imgTrans_.advertise("map_image/fbe",1);
+
+//    client_ = node.serviceClient<>("request_goal");
+    resolution_ = 0.1;
 }
 
 
 FrontierExploration::~FrontierExploration()
 {
     cv::destroyAllWindows();
+}
+
+std::deque<FrontierExploration::OgPose> FrontierExploration::getFrontierCells()
+{
+    return frontierCells_;
 }
 
 void FrontierExploration::calculateGoalPose()
@@ -22,24 +30,36 @@ void FrontierExploration::calculateGoalPose()
     {
         std::unique_lock<std::mutex> lck(mtx);
         // Display goal coordinate in reference of OgMap
-        std::cout << "og map goal coordinate x:" << ogMapGoalPose_.x << " y:" << ogMapGoalPose_.y <<  std::endl;
-        robotGoalPose_.x = ogMapGoalPose_.x - 100;
-        robotGoalPose_.y = 100 - ogMapGoalPose_.y;
-        robotGoalPose_.yaw = atan2(robotGoalPose_.y,robotGoalPose_.x);
-        std::cout << "(robot reference) goal pose x:"<< robotGoalPose_.x << " y:" << robotGoalPose_.y << " yaw:"
-                  << robotGoalPose_.yaw << ", " << robotGoalPose_.yaw * 180/3.1415 << " Degree"<< std::endl;
+        std::cout << "global robot coordinate x:" << poseBuffer.buffer.front().x << " y:" << poseBuffer.buffer.front().y
+                  << " yaw:" << poseBuffer.buffer.front().yaw << std::endl;
+        std::cout << "og map local goal coordinate x:" << ogMapReferenceGoalPose_.x << " y:" << ogMapReferenceGoalPose_.y <<  std::endl;
+
+        // Calculate and display the goal pose in reference of the robot
+        robotReferenceGoalPose_.x = (ogMapReferenceGoalPose_.x - 100)*resolution_;
+        robotReferenceGoalPose_.y = (100 - ogMapReferenceGoalPose_.y)*resolution_;
+        robotReferenceGoalPose_.yaw = atan2(robotReferenceGoalPose_.y,robotReferenceGoalPose_.x);
+        std::cout << "(robot reference) goal pose x:"<< robotReferenceGoalPose_.x << " y:" << robotReferenceGoalPose_.y << " yaw:"
+                  << robotReferenceGoalPose_.yaw << ", " << robotReferenceGoalPose_.yaw * 180/3.1415 << " Degree" << std::endl;
+
+        // Calculate and display the goal pose in reference of the global coordinate system
+        globalReferenceGoalPose_.x = robotReferenceGoalPose_.x + poseBuffer.buffer.front().x;
+        globalReferenceGoalPose_.y = robotReferenceGoalPose_.y + poseBuffer.buffer.front().y;
+        globalReferenceGoalPose_.yaw = robotReferenceGoalPose_.yaw;
+        std::cout << "(global reference) goal pose x:" << globalReferenceGoalPose_.x
+                  << " y:" <<  globalReferenceGoalPose_.y << " yaw:" << globalReferenceGoalPose_.yaw << std::endl << std::endl;
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 }
 
 FrontierExploration::OgPose FrontierExploration::computeFontierCell(cv::Mat ogMap)
 {
+    // Define objects that is required to compute fontier cells
     int min_dist = 9999;
     OgPose minDistPose;
     OgPose frontierCell;
     // Clear previous frontier cells before storing new cells
     frontierCells_.clear();
-    // Iterate each row pixels to find frontier cell
+    // Iterate each row pixels to find the frontier cell
     for(int i = 0; i < ogMap.rows; i++)
     {
         double prev = 0;
@@ -51,17 +71,20 @@ FrontierExploration::OgPose FrontierExploration::computeFontierCell(cv::Mat ogMa
             if((prev != current) && current != 0 && prev != 0)
             {
                 // Store the frontier cell into a cell container
-                frontierCell.x = j;
+                if(current == 255)
+                    frontierCell.x = j;
+                else
+                    frontierCell.x = j-1;
                 frontierCell.y = i;
                 frontierCells_.push_back(frontierCell);
 
                 // Calculate the frontier cell distance relative to the robot
-                double dist = sqrt(pow((100-i),2) + pow((100-j),2));
+                double dist = sqrt(pow((ROBOT_LOCATION_CELL_Y-frontierCell.y),2) + pow((ROBOT_LOCATION_CELL_X-frontierCell.x),2));
                 if(dist < min_dist)
                 {
                     // Temporarily store the shortest distance ogMap coordinate
-                    minDistPose.x = j;
-                    minDistPose.y = i;
+                    minDistPose.x = frontierCell.x;
+                    minDistPose.y = frontierCell.y;
                     min_dist = dist;
                 }
             }
@@ -81,15 +104,19 @@ FrontierExploration::OgPose FrontierExploration::computeFontierCell(cv::Mat ogMa
             // If the previous cell and current cell are both not the same and not dark cell, then it is a frontier cell
             if((prev != current) && current != 0 && prev != 0)
             {
+                // Store the frontier cell into the frontierCells_ container
+                if(current == 255)
+                    frontierCell.y = i;
+                else
+                    frontierCell.y = i-1;
                 frontierCell.x = j;
-                frontierCell.y = i;
                 frontierCells_.push_back(frontierCell);
-                double dist = sqrt(pow((100-i),2) + pow((100-j),2));
+                double dist = sqrt(pow((ROBOT_LOCATION_CELL_Y-frontierCell.y),2) + pow((ROBOT_LOCATION_CELL_X-frontierCell.x),2));
                 if(dist < min_dist)
                 {
                     // Temporarily store the shortest distance ogMap coordinate
-                    minDistPose.x = j;
-                    minDistPose.y = i;
+                    minDistPose.x = frontierCell.x;
+                    minDistPose.y = frontierCell.y;
                     min_dist = dist;
                 }
             }
@@ -99,6 +126,38 @@ FrontierExploration::OgPose FrontierExploration::computeFontierCell(cv::Mat ogMa
     return minDistPose;
 }
 
+void FrontierExploration::computeFrontierAtGoal()
+{
+    // given goal pose and calculated frontier cells
+    // Obtain a deque of frontier cells seem by goal
+    OgPose frontierPose;
+    goalFrontierCells_.clear();
+    for (auto i : frontierCells_)
+    {
+        double frontierYaw = 0;
+        double robotPoseYaw = 0;
+
+        double frontierToRobotX = (i.x - 100)*resolution_;
+        double frontierToRobotY = (100 - i.y)*resolution_;
+        double frontierToRobotDist = sqrt(pow(frontierToRobotY,2) + pow(frontierToRobotX,2));
+        double frontierToRobotYaw = atan2(frontierToRobotY,frontierToRobotX);
+
+        // Convert pose negative yaw into positive angle
+        if(frontierToRobotYaw < 0)
+            frontierYaw = 6.28 + frontierToRobotYaw;
+        else
+            frontierYaw = frontierToRobotYaw;
+
+        // Convert robot pose yaw into positive angle
+        if(robotReferenceGoalPose_.yaw < 0)
+            robotPoseYaw = 6.28 + robotReferenceGoalPose_.yaw;
+        else
+            robotPoseYaw = robotReferenceGoalPose_.yaw;
+
+        if((frontierYaw > robotPoseYaw - 1.27) && (frontierYaw < robotPoseYaw + 1.27) && frontierToRobotDist < 8)
+            goalFrontierCells_.push_back(i);
+    }
+}
 
 void FrontierExploration::processFrontier()
 {
@@ -109,28 +168,44 @@ void FrontierExploration::processFrontier()
             imgBuffer_.imgMtx.lock();
             cv::Mat map = imgBuffer_.imgBuffer.front();
             imgBuffer_.imgMtx.unlock();
-            // Clone a copy of map to frontier_map
-            cv::Mat frontier_map = map.clone();
-
+            // Clone a copy of map to frontierMap_
+            frontierMap_ = map.clone();
             // set frontier map image to white
-            frontier_map = 255;
-
-            ogMapGoalPose_ = computeFontierCell(map);
-
+            frontierMap_ = 255;
+            // calculate the goal pose in reference to the OgMap
+            ogMapReferenceGoalPose_ = computeFontierCell(map);
+            // Draw the frontier cells on the frontierMap_
             for(auto &i : frontierCells_)
-                frontier_map.at<uchar>(i.y,i.x) = 0;
+                frontierMap_.at<uchar>(i.y,i.x) = 0;
+            // Define goal pose point and robot points
+
+            // Based on pose and goal calculate the frontier cells seen by field of view of laser.
+            computeFrontierAtGoal();
+
+            for(auto &i : goalFrontierCells_)
+            {
+                cv::Point point;
+                point.x = i.x;
+                point.y = i.y;
+                cv::circle(frontierMap_, point, 2, 0, 2);
+            }
+
             cv::Point pt;
-            pt.x = ogMapGoalPose_.x;
-            pt.y = ogMapGoalPose_.y;
+            pt.x = ogMapReferenceGoalPose_.x;
+            pt.y = ogMapReferenceGoalPose_.y;
             cv::Point robotPos;
-            robotPos.x = 100;
-            robotPos.y = 100;
-            cv::circle(frontier_map, pt, 10, 0,1);
-            cv::circle(frontier_map,robotPos,3,0,3);
-            cv::imshow("frontier_map", frontier_map);
+            robotPos.x = ROBOT_LOCATION_CELL_X;
+            robotPos.y = ROBOT_LOCATION_CELL_Y;
+            // Draw a circle at the goal pose and draw the robot location
+            cv::circle(frontierMap_, pt, 10, 0,1);
+            cv::circle(frontierMap_,robotPos,3,0,3);
+            cv::imshow("frontierMap_", frontierMap_);
             cv::imshow("ogMap", map);
-            cv::waitKey(10);
+            cv::waitKey(1);
         }
+        cvImageFbe_.image = frontierMap_;
+        imageFbePublisher_.publish(cvImageFbe_.toImageMsg());
+        std::this_thread::sleep_for(std::chrono::milliseconds(10000));
     }
 }
 
@@ -150,7 +225,6 @@ void FrontierExploration::imageCallback(const sensor_msgs::ImageConstPtr& msg)
         ROS_ERROR("cv_bridge exception: %s", e.what());
         return;
     }
-
     // Lock and push back cv::Mat image data
     imgBuffer_.imgMtx.lock();
     imgBuffer_.imgBuffer.push_back(cvImgPtr_->image);
@@ -161,13 +235,23 @@ void FrontierExploration::imageCallback(const sensor_msgs::ImageConstPtr& msg)
 
 void FrontierExploration::odomCallBack(const nav_msgs::OdometryConstPtr& msg)
 {
+    // Extract pose information from odom topic.
     geometry_msgs::Pose pose = msg->pose.pose;
+    // Create a OgPose storing current pose and store in buffer.
     OgPose currentPose;
     currentPose.x = pose.position.x;
     currentPose.y = pose.position.y;
     currentPose.yaw = tf::getYaw(pose.orientation);
     poseBuffer.mtx.lock();
     poseBuffer.buffer.push_back(currentPose);
+    if(poseBuffer.buffer.size() > 5)
+        poseBuffer.buffer.pop_front();
     poseBuffer.mtx.unlock();
-    //    cout << "odom returned attributes: x = " << currentPose.x << ", y = " << currentPose.y << ", yaw = " << currentPose.yaw << endl;
+//        cout << "odom returned attributes: x = " << currentPose.x << ", y = " << currentPose.y << ", yaw = " << currentPose.yaw << endl;
 }
+
+void FrontierExploration::pathCallback(const geometry_msgs::PoseArrayConstPtr &msg)
+{
+    std::cout << "recieved pose array" << std::endl;
+}
+

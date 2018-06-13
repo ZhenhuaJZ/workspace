@@ -78,6 +78,11 @@ endif(DOXYGEN_FOUND)
 #   Service2.srv
 # )
 
+#add_service_files(
+#   FILES
+#   RequestGoal.srv
+#)
+
 ## Generate actions in the 'action' folder
 # add_action_files(
 #   FILES
@@ -219,10 +224,18 @@ target_link_libraries(exploration ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
 #############
 
 ## Add gtest based cpp test target and link libraries
-catkin_add_gtest(${PROJECT_NAME}-test test/test_frontier_exploration.cpp)
-if(TARGET ${PROJECT_NAME}-test)
-  target_link_libraries(${PROJECT_NAME}-test ${PROJECT_NAME})
+catkin_add_gtest(frontierTest test/test_frontier_exploration.cpp src/frontier_exploration.cpp)
+if(TARGET frontierTest)
+    target_link_libraries(frontierTest ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
+    target_link_libraries(frontierTest gtest gtest_main)
+#    target_link_libraries(frontierTest src/frontier_exploration.h)
 endif()
+
+#add_executable(unitTest test/test_frontier_exploration.cpp)
+
+#target_link_libraries(unitTest gtest gtest_main)
+
+#target_link_libraries(unitTest src/frontier_exploration.h)
 
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
