@@ -14,6 +14,7 @@ find_package(catkin REQUIRED COMPONENTS
   rospy
   sensor_msgs
   std_msgs
+  message_generation
 )
 
 find_package(OpenCV REQUIRED)
@@ -78,10 +79,10 @@ endif(DOXYGEN_FOUND)
 #   Service2.srv
 # )
 
-#add_service_files(
-#   FILES
-#   RequestGoal.srv
-#)
+add_service_files(
+   FILES
+   RequestGoal.srv
+)
 
 ## Generate actions in the 'action' folder
 # add_action_files(
@@ -91,10 +92,11 @@ endif(DOXYGEN_FOUND)
 # )
 
 ## Generate added messages and services with any dependencies listed here
-# generate_messages(
-#   DEPENDENCIES
-#   std_msgs
-# )
+generate_messages(
+   DEPENDENCIES
+   sensor_msgs
+   std_msgs
+)
 
 ################################################
 ## Declare ROS dynamic reconfigure parameters ##
@@ -128,7 +130,7 @@ endif(DOXYGEN_FOUND)
 catkin_package(
 #  INCLUDE_DIRS include
 #  LIBRARIES frontier_exploration
-#  CATKIN_DEPENDS roscpp rospy std_msgs
+  CATKIN_DEPENDS roscpp rospy std_msgs
 #  DEPENDS system_lib
 )
 
@@ -156,6 +158,9 @@ add_executable(exploration src/exploration.cpp src/frontier_exploration.cpp)
 
 target_link_libraries(exploration ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
 #target_link_libraries(test ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
+
+add_dependencies(exploration ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+add_dependencies(exploration ${PROJECT_NAME}_generate_messages_cpp)
 
 ## Add cmake target dependencies of the library
 ## as an example, code may need to be generated before libraries

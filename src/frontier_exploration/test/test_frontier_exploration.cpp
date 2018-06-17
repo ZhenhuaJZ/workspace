@@ -27,6 +27,10 @@ TEST(FrontierGoalTest, Pass)
     ASSERT_EQ(100,pose.x);
 }
 
+TEST(FrontierSeenByGoalTest, Pass)
+{
+
+}
 
 
 int main(int argc, char ** argv)

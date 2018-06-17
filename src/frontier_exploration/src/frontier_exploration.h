@@ -19,6 +19,7 @@
 #include <thread>
 #include <mutex>
 #include <chrono>
+#include "../../devel/include/frontier_exploration/RequestGoal.h"
 
 #define ROBOT_LOCATION_CELL_X 100
 #define ROBOT_LOCATION_CELL_Y 100
@@ -28,7 +29,6 @@
  * calculate the frontier cell base on the OgMap, hence compute a goal pose which
  * the robot will head to.
  */
-
 class FrontierExploration
 {
 public:
@@ -41,6 +41,19 @@ public:
         double y;
         double yaw;
     };
+
+//    struct Response
+//    {
+//        bool ack;
+//    };
+
+//    struct Request
+//    {
+//        double x;
+//        double y;
+//        double yaw;
+//    };
+
 private:
     ros::NodeHandle nodeHandle_;
     image_transport::ImageTransport imgTrans_;
@@ -51,11 +64,10 @@ private:
     ros::ServiceClient client_;
     cv_bridge::CvImage cvImageFbe_;
     image_transport::Publisher imageFbePublisher_;
-
+    ros::ServiceServer service_;
 
     cv::Mat frontierMap_;
-
-
+    cv::Mat OgMap_;
     double resolution_;
 
     struct ImageDataBuffer
@@ -125,6 +137,7 @@ public:
      * \return Goal pose in reference to the ogMap
      */
     OgPose computeFontierCell(cv::Mat ogMap);
+
     /*!
      * \brief calculateGoalPose calculates the goal x y and yaw pose in reference the robot.
      * The goal pose in reference to the robot is by calculate the ogMap coorindate and coordinate conversion, the calculated coordinate is in reference in the center of ogMap which is the
@@ -133,14 +146,28 @@ public:
     void calculateGoalPose();
 
     /*!
-     * \brief getFrontierCells
-     * \return
+     * \brief getFrontierCells is a getter function to obtain the container containing frontier cells.
+     * \return a deque container containing frontier cells
      */
     std::deque<OgPose> getFrontierCells();
 
+    /*!
+     * \brief computeFrontierAtGoal computes the frontiers cells seen by the goal pose.
+     */
     void computeFrontierAtGoal();
 
+    /*!
+     * \brief pathCallback is the call back function when topic path is sending back array of pose informations.
+     * \param msg send back by the path topic containing pose array.
+     */
     void pathCallback(const geometry_msgs::PoseArrayConstPtr& msg);
-};
 
+    /*!
+     * \brief requestGoal requests goal to other nodes that subscribed to the service.
+     * \param req is a parameter sends the request to the service.
+     * \param res is a parameter containing the response send by subscribed node.
+     * \return bool variable indicating if the request is send and received a response.
+     */
+    bool requestGoal(frontier_exploration::RequestGoal::Request &req, frontier_exploration::RequestGoal::Response &res);
+};
 #endif

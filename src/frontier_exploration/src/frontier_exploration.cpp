@@ -7,9 +7,9 @@ FrontierExploration::FrontierExploration(ros::NodeHandle node)
     odomSub_ = nodeHandle_.subscribe("odom", 1000, &FrontierExploration::odomCallBack,this);
     pathSub_ = nodeHandle_.subscribe("path", 20, &FrontierExploration::pathCallback,this);
     imageFbePublisher_ = imgTrans_.advertise("map_image/fbe",1);
-
-//    client_ = node.serviceClient<>("request_goal");
+    service_ = nodeHandle_.advertiseService("request_goal", &FrontierExploration::requestGoal,this);
     resolution_ = 0.1;
+
 }
 
 
@@ -21,6 +21,13 @@ FrontierExploration::~FrontierExploration()
 std::deque<FrontierExploration::OgPose> FrontierExploration::getFrontierCells()
 {
     return frontierCells_;
+}
+
+bool FrontierExploration::requestGoal(frontier_exploration::RequestGoal::Request &req, frontier_exploration::RequestGoal::Response &res){
+//  ROS_INFO("request: x=%6.4f, y=%6.4f, yaw=%6.4f", (double)req.x, (double)req.y, (double)req.yaw);
+//  res.ack = true;
+//  ROS_INFO("sending back response: [%d]", res.ack);
+//  return true;
 }
 
 void FrontierExploration::calculateGoalPose()
@@ -130,7 +137,6 @@ void FrontierExploration::computeFrontierAtGoal()
 {
     // given goal pose and calculated frontier cells
     // Obtain a deque of frontier cells seem by goal
-    OgPose frontierPose;
     goalFrontierCells_.clear();
     for (auto i : frontierCells_)
     {
@@ -166,14 +172,14 @@ void FrontierExploration::processFrontier()
     {
         if(imgBuffer_.imgBuffer.size()){
             imgBuffer_.imgMtx.lock();
-            cv::Mat map = imgBuffer_.imgBuffer.front();
+            OgMap_ = imgBuffer_.imgBuffer.front();
             imgBuffer_.imgMtx.unlock();
-            // Clone a copy of map to frontierMap_
-            frontierMap_ = map.clone();
-            // set frontier map image to white
+            // Clone a copy of OgMap to frontierMap_
+            frontierMap_ = OgMap_.clone();
+            // set frontier OgMap_ image to white
             frontierMap_ = 255;
             // calculate the goal pose in reference to the OgMap
-            ogMapReferenceGoalPose_ = computeFontierCell(map);
+            ogMapReferenceGoalPose_ = computeFontierCell(OgMap_);
             // Draw the frontier cells on the frontierMap_
             for(auto &i : frontierCells_)
                 frontierMap_.at<uchar>(i.y,i.x) = 0;
@@ -200,12 +206,12 @@ void FrontierExploration::processFrontier()
             cv::circle(frontierMap_, pt, 10, 0,1);
             cv::circle(frontierMap_,robotPos,3,0,3);
             cv::imshow("frontierMap_", frontierMap_);
-            cv::imshow("ogMap", map);
-            cv::waitKey(1);
+            cv::imshow("ogMap", OgMap_);
+            cv::waitKey(2);
         }
         cvImageFbe_.image = frontierMap_;
         imageFbePublisher_.publish(cvImageFbe_.toImageMsg());
-        std::this_thread::sleep_for(std::chrono::milliseconds(10000));
+//        std::this_thread::sleep_for(std::chrono::milliseconds(10000));
     }
 }
 
@@ -249,6 +255,7 @@ void FrontierExploration::odomCallBack(const nav_msgs::OdometryConstPtr& msg)
     poseBuffer.mtx.unlock();
 //        cout << "odom returned attributes: x = " << currentPose.x << ", y = " << currentPose.y << ", yaw = " << currentPose.yaw << endl;
 }
+
 
 void FrontierExploration::pathCallback(const geometry_msgs::PoseArrayConstPtr &msg)
 {
