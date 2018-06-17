@@ -64,6 +64,7 @@ private:
     cv_bridge::CvImage cvImageFbe_; //!< CvImage to transport image with ros
     image_transport::Publisher imageFbePublisher_; //!< publisher to publish image_fbe topic
     ros::ServiceServer service_; //!< ros service server
+    ros::ServiceClient client_;
 
     cv::Mat frontierMap_; //!< Stores map containing frontier, goal cell, and frontier cells seen by goal
     cv::Mat OgMap_; //!< OgMap receive from map_image/full topic
@@ -122,8 +123,8 @@ public:
     void imageCallback(const sensor_msgs::ImageConstPtr& msg);
 
     /*!
-     * \brief processFrontier is a function to process all the frontier cells.
-     * It compute and display the image of fontier cell
+     * \brief processFrontier is a function to process all the frontier cells. All the computation of the frontier cells , goal pose and frontier cells seen by goal pose are all inside this function.
+     * The function also pulishes an image containing all the mentioned cells. color coding: Blue - Goal pose, Red - frontier cell seen by goal pose, Black - frontier cells
      */
     void processFrontier();
 
@@ -133,9 +134,16 @@ public:
      * If the current cell is different from previous cell and both current cell and previous cell are not black, then the white cell is the frontier cell.
      * All the frontier cells are stored inside a container.
      * \param ogMap Mono image containing information of the map seen by robot
-     * \return Goal pose in reference to the ogMap
+     * \return Deque container of frontier cells
      */
-    OgPose computeFontierCell(cv::Mat ogMap);
+    std::deque<OgPose> computeFontierCell(cv::Mat ogMap);
+
+    /*!
+     * \brief computeGoalPose compute the goal pose base on given frontier cells
+     * \param frontierCells contains calculated frontier cells from OgMap
+     * \return OgPose of goal pose
+     */
+    OgPose computeGoalPose(std::deque<OgPose> frontierCells);
 
     /*!
      * \brief calculateGoalPose calculates the goal x y and yaw pose in reference the robot.
@@ -157,9 +165,13 @@ public:
     std::deque<OgPose> getGoalFrontierCells();
 
     /*!
-     * \brief computeFrontierAtGoal computes the frontiers cells seen by the goal pose.
+     * \brief computeFrontierAtGoal computes the frontier cells seen by goal base on compare if the cells in within range of field of view of the laser.
+     * If the frontier cell is within range of field of view and is within laser distance then its an frontier cell seen by goal.
+     * \param frontierCells containing calculated all the frontier cells of OgMap
+     * \param goalPose is the goal pose
+     * \return a deque container containing frontier cells seen by goal pose
      */
-    void computeFrontierAtGoal();
+    std::deque<OgPose> computeFrontierAtGoal(std::deque<OgPose> frontierCells, OgPose goalPose);
 
     /*!
      * \brief pathCallback is the call back function when topic path is sending back array of pose informations.

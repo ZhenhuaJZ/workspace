@@ -7,7 +7,7 @@ FrontierExploration::FrontierExploration(ros::NodeHandle node)
     odomSub_ = nodeHandle_.subscribe("odom", 1000, &FrontierExploration::odomCallBack,this);
     pathSub_ = nodeHandle_.subscribe("path", 20, &FrontierExploration::pathCallback,this);
     imageFbePublisher_ = imgTrans_.advertise("map_image/fbe",1);
-    service_ = nodeHandle_.advertiseService("request_goal", &FrontierExploration::requestGoal,this);
+    client_ = nodeHandle_.serviceClient<frontier_exploration::RequestGoal>("request_goal");
     resolution_ = 0.1;
 }
 
@@ -27,11 +27,23 @@ std::deque<FrontierExploration::OgPose> FrontierExploration::getGoalFrontierCell
     return goalFrontierCells_;
 }
 
-bool FrontierExploration::requestGoal(frontier_exploration::RequestGoal::Request &req, frontier_exploration::RequestGoal::Response &res){
-  ROS_INFO("request: x=%6.4f, y=%6.4f, yaw=%6.4f", (double)req.x, (double)req.y, (double)req.yaw);
-  res.ack = true;
-  ROS_INFO("sending back response: [%d]", res.ack);
-  return true;
+FrontierExploration::OgPose FrontierExploration::computeGoalPose(std::deque<OgPose> frontierCells)
+{
+    int min_dist = 9999;
+    OgPose minDistPose;
+    // Calculate the frontier cell distance relative to the robot
+    for (auto i : frontierCells)
+    {
+        double dist = sqrt(pow((ROBOT_LOCATION_CELL_Y-i.y),2) + pow((ROBOT_LOCATION_CELL_X-i.x),2));
+        if(dist < min_dist)
+        {
+            // Temporarily store the shortest distance ogMap coordinate
+            minDistPose.x = i.x;
+            minDistPose.y = i.y;
+            min_dist = dist;
+        }
+    }
+    return minDistPose;
 }
 
 void FrontierExploration::calculateGoalPose()
@@ -39,7 +51,7 @@ void FrontierExploration::calculateGoalPose()
     std::mutex mtx;
     while(ros::ok())
     {
-        std::unique_lock<std::mutex> lck(mtx);
+        mtx.lock();
         // Display goal coordinate in reference of OgMap
         std::cout << "global robot coordinate x:" << poseBuffer.buffer.front().x << " y:" << poseBuffer.buffer.front().y
                   << " yaw:" << poseBuffer.buffer.front().yaw << std::endl;
@@ -58,18 +70,24 @@ void FrontierExploration::calculateGoalPose()
         globalReferenceGoalPose_.yaw = robotReferenceGoalPose_.yaw;
         std::cout << "(global reference) goal pose x:" << globalReferenceGoalPose_.x
                   << " y:" <<  globalReferenceGoalPose_.y << " yaw:" << globalReferenceGoalPose_.yaw << std::endl << std::endl;
+        frontier_exploration::RequestGoal srv;
+        srv.request.x = globalReferenceGoalPose_.x;
+        srv.request.y = globalReferenceGoalPose_.y;
+        srv.request.yaw = globalReferenceGoalPose_.yaw;
+        if (client_.call(srv))
+            ROS_INFO("Receive Status: %ld", (int)srv.response.ack);
+        else
+            ROS_ERROR("No Response");
+        mtx.unlock();
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 }
 
-FrontierExploration::OgPose FrontierExploration::computeFontierCell(cv::Mat ogMap)
+std::deque<FrontierExploration::OgPose> FrontierExploration::computeFontierCell(cv::Mat ogMap)
 {
     // Define objects that is required to compute fontier cells
-    int min_dist = 9999;
-    OgPose minDistPose;
+    std::deque<OgPose> frontierCellContainer;
     OgPose frontierCell;
-    // Clear previous frontier cells before storing new cells
-    frontierCells_.clear();
     // Iterate each row pixels to find the frontier cell
     for(int i = 0; i < ogMap.rows; i++)
     {
@@ -87,17 +105,7 @@ FrontierExploration::OgPose FrontierExploration::computeFontierCell(cv::Mat ogMa
                 else
                     frontierCell.x = j-1;
                 frontierCell.y = i;
-                frontierCells_.push_back(frontierCell);
-
-                // Calculate the frontier cell distance relative to the robot
-                double dist = sqrt(pow((ROBOT_LOCATION_CELL_Y-frontierCell.y),2) + pow((ROBOT_LOCATION_CELL_X-frontierCell.x),2));
-                if(dist < min_dist)
-                {
-                    // Temporarily store the shortest distance ogMap coordinate
-                    minDistPose.x = frontierCell.x;
-                    minDistPose.y = frontierCell.y;
-                    min_dist = dist;
-                }
+                frontierCellContainer.push_back(frontierCell);
             }
             // Set previous cell as current cell
             prev = current;
@@ -115,35 +123,27 @@ FrontierExploration::OgPose FrontierExploration::computeFontierCell(cv::Mat ogMa
             // If the previous cell and current cell are both not the same and not dark cell, then it is a frontier cell
             if((prev != current) && current != 0 && prev != 0)
             {
-                // Store the frontier cell into the frontierCells_ container
+                // Store the frontier cell into the frontierCells container
                 if(current == 255)
                     frontierCell.y = i;
                 else
                     frontierCell.y = i-1;
                 frontierCell.x = j;
-                frontierCells_.push_back(frontierCell);
-                double dist = sqrt(pow((ROBOT_LOCATION_CELL_Y-frontierCell.y),2) + pow((ROBOT_LOCATION_CELL_X-frontierCell.x),2));
-                if(dist < min_dist)
-                {
-                    // Temporarily store the shortest distance ogMap coordinate
-                    minDistPose.x = frontierCell.x;
-                    minDistPose.y = frontierCell.y;
-                    min_dist = dist;
-                }
+                frontierCellContainer.push_back(frontierCell);
             }
             prev = current;
         }
     }
-    ogMapReferenceGoalPose_ = minDistPose;
-    return minDistPose;
+    return frontierCellContainer;
 }
 
-void FrontierExploration::computeFrontierAtGoal()
+std::deque<FrontierExploration::OgPose> FrontierExploration::computeFrontierAtGoal(std::deque<OgPose> frontierCells, OgPose goalPose)
 {
     // given goal pose and calculated frontier cells
     // Obtain a deque of frontier cells seem by goal
-    goalFrontierCells_.clear();
-    for (auto i : frontierCells_)
+    std::deque<OgPose> goalFrontierCells;
+   std::mutex mtx;
+    for (auto i : frontierCells)
     {
         double frontierYaw = 0;
         double robotPoseYaw = 0;
@@ -158,16 +158,21 @@ void FrontierExploration::computeFrontierAtGoal()
             frontierYaw = 6.28 + frontierToRobotYaw;
         else
             frontierYaw = frontierToRobotYaw;
+        OgPose robotReferenceGoalPose;
+        robotReferenceGoalPose.x = (goalPose.x - 100)*resolution_;
+        robotReferenceGoalPose.y = (100 - goalPose.y)*resolution_;
+        robotReferenceGoalPose.yaw = atan2(robotReferenceGoalPose.y,robotReferenceGoalPose.x);
 
         // Convert robot pose yaw into positive angle
-        if(robotReferenceGoalPose_.yaw < 0)
-            robotPoseYaw = 6.28 + robotReferenceGoalPose_.yaw;
+        if(robotReferenceGoalPose.yaw < 0)
+            robotPoseYaw = 6.28 + robotReferenceGoalPose.yaw;
         else
-            robotPoseYaw = robotReferenceGoalPose_.yaw;
+            robotPoseYaw = robotReferenceGoalPose.yaw;
 
         if((frontierYaw > robotPoseYaw - 1.27) && (frontierYaw < robotPoseYaw + 1.27) && frontierToRobotDist < 8)
-            goalFrontierCells_.push_back(i);
+            goalFrontierCells.push_back(i);
     }
+    return goalFrontierCells;
 }
 
 void FrontierExploration::processFrontier()
@@ -184,10 +189,12 @@ void FrontierExploration::processFrontier()
             frontierMap_ = 255;
             cv::cvtColor(frontierMap_,frontierMap_, cv::COLOR_GRAY2BGR);
             // calculate the goal pose in reference to the OgMap
-            ogMapReferenceGoalPose_ = computeFontierCell(OgMap_);
+            frontierCells_ = computeFontierCell(OgMap_);
             // Draw the frontier cells on the frontierMap_
 
-            computeFrontierAtGoal();
+            ogMapReferenceGoalPose_ = computeGoalPose(frontierCells_);
+
+            goalFrontierCells_ =  computeFrontierAtGoal(frontierCells_, ogMapReferenceGoalPose_);
 
             for(auto &i : frontierCells_)
             {
