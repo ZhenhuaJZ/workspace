@@ -55,46 +55,45 @@ public:
 //    };
 
 private:
-    ros::NodeHandle nodeHandle_;
-    image_transport::ImageTransport imgTrans_;
-    image_transport::Subscriber imgTransSub_;
-    ros::Subscriber odomSub_;
-    ros::Subscriber pathSub_;
-    cv_bridge::CvImagePtr cvImgPtr_;
-    ros::ServiceClient client_;
-    cv_bridge::CvImage cvImageFbe_;
-    image_transport::Publisher imageFbePublisher_;
-    ros::ServiceServer service_;
+    ros::NodeHandle nodeHandle_; //!< Node handle of frontier node
+    image_transport::ImageTransport imgTrans_; //!< image tranport object
+    image_transport::Subscriber imgTransSub_; //!<
+    ros::Subscriber odomSub_; //!< Ros subscriber for odom topic
+    ros::Subscriber pathSub_; //!< Ros subscriber for path topic
+    cv_bridge::CvImagePtr cvImgPtr_; //!< cv image pointer to transport image with ros
+    cv_bridge::CvImage cvImageFbe_; //!< CvImage to transport image with ros
+    image_transport::Publisher imageFbePublisher_; //!< publisher to publish image_fbe topic
+    ros::ServiceServer service_; //!< ros service server
 
-    cv::Mat frontierMap_;
-    cv::Mat OgMap_;
-    double resolution_;
+    cv::Mat frontierMap_; //!< Stores map containing frontier, goal cell, and frontier cells seen by goal
+    cv::Mat OgMap_; //!< OgMap receive from map_image/full topic
+    double resolution_; //!< Resolution for each cell
 
+    /*!
+     * \brief The ImageDataBuffer struct contain deque container containing Mat image and mutex lock
+     */
     struct ImageDataBuffer
     {
         std::deque<cv::Mat> imgBuffer;
         std::mutex imgMtx;
     };
-    ImageDataBuffer imgBuffer_;
+    ImageDataBuffer imgBuffer_; //!< ImageDataBuffer object
 
+    /*!
+     * \brief The PoseDataBuffer struct contain deque container containing Poses and mutex lock
+     */
     struct PoseDataBuffer
     {
         std::deque<OgPose> buffer;
         std::mutex mtx;
     };
-    PoseDataBuffer poseBuffer;
+    PoseDataBuffer poseBuffer; //!< PoseDataBuffer object
 
-    struct pathDataBuffer
-    {
-        std::deque<OgPose> buffer;
-        std::mutex mtx;
-    };
-
-    std::deque<OgPose> frontierCells_;
-    std::deque<OgPose> goalFrontierCells_;
-    OgPose ogMapReferenceGoalPose_;
-    OgPose robotReferenceGoalPose_;
-    OgPose globalReferenceGoalPose_;
+    std::deque<OgPose> frontierCells_; //!< stores poses of frontier cells
+    std::deque<OgPose> goalFrontierCells_; //!< stores poses of frontier cells seen by the goal pose
+    OgPose ogMapReferenceGoalPose_; //!< Goal pose in reference of OgMap
+    OgPose robotReferenceGoalPose_; //!< Goal pose in reference of the robot
+    OgPose globalReferenceGoalPose_; //!< Goal pose in reference of global
 
 public:
     /*!
@@ -150,6 +149,12 @@ public:
      * \return a deque container containing frontier cells
      */
     std::deque<OgPose> getFrontierCells();
+
+    /*!
+     * \brief getGoalFrontierCells is a getter function to obtain the container containing frontier cells seen by goal.
+     * \return a deque container containin frontier cells seen by goal
+     */
+    std::deque<OgPose> getGoalFrontierCells();
 
     /*!
      * \brief computeFrontierAtGoal computes the frontiers cells seen by the goal pose.

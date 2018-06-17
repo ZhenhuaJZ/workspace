@@ -9,7 +9,6 @@ FrontierExploration::FrontierExploration(ros::NodeHandle node)
     imageFbePublisher_ = imgTrans_.advertise("map_image/fbe",1);
     service_ = nodeHandle_.advertiseService("request_goal", &FrontierExploration::requestGoal,this);
     resolution_ = 0.1;
-
 }
 
 
@@ -23,11 +22,16 @@ std::deque<FrontierExploration::OgPose> FrontierExploration::getFrontierCells()
     return frontierCells_;
 }
 
+std::deque<FrontierExploration::OgPose> FrontierExploration::getGoalFrontierCells()
+{
+    return goalFrontierCells_;
+}
+
 bool FrontierExploration::requestGoal(frontier_exploration::RequestGoal::Request &req, frontier_exploration::RequestGoal::Response &res){
-//  ROS_INFO("request: x=%6.4f, y=%6.4f, yaw=%6.4f", (double)req.x, (double)req.y, (double)req.yaw);
-//  res.ack = true;
-//  ROS_INFO("sending back response: [%d]", res.ack);
-//  return true;
+  ROS_INFO("request: x=%6.4f, y=%6.4f, yaw=%6.4f", (double)req.x, (double)req.y, (double)req.yaw);
+  res.ack = true;
+  ROS_INFO("sending back response: [%d]", res.ack);
+  return true;
 }
 
 void FrontierExploration::calculateGoalPose()
@@ -130,6 +134,7 @@ FrontierExploration::OgPose FrontierExploration::computeFontierCell(cv::Mat ogMa
             prev = current;
         }
     }
+    ogMapReferenceGoalPose_ = minDistPose;
     return minDistPose;
 }
 
@@ -173,45 +178,45 @@ void FrontierExploration::processFrontier()
         if(imgBuffer_.imgBuffer.size()){
             imgBuffer_.imgMtx.lock();
             OgMap_ = imgBuffer_.imgBuffer.front();
-            imgBuffer_.imgMtx.unlock();
             // Clone a copy of OgMap to frontierMap_
             frontierMap_ = OgMap_.clone();
             // set frontier OgMap_ image to white
             frontierMap_ = 255;
+            cv::cvtColor(frontierMap_,frontierMap_, cv::COLOR_GRAY2BGR);
             // calculate the goal pose in reference to the OgMap
             ogMapReferenceGoalPose_ = computeFontierCell(OgMap_);
             // Draw the frontier cells on the frontierMap_
-            for(auto &i : frontierCells_)
-                frontierMap_.at<uchar>(i.y,i.x) = 0;
-            // Define goal pose point and robot points
 
-            // Based on pose and goal calculate the frontier cells seen by field of view of laser.
             computeFrontierAtGoal();
+
+            for(auto &i : frontierCells_)
+            {
+                frontierMap_.at<cv::Vec3b>(i.y,i.x)[0] = 0;
+                frontierMap_.at<cv::Vec3b>(i.y,i.x)[1] = 0;
+                frontierMap_.at<cv::Vec3b>(i.y,i.x)[2] = 0;
+            }
 
             for(auto &i : goalFrontierCells_)
             {
-                cv::Point point;
-                point.x = i.x;
-                point.y = i.y;
-                cv::circle(frontierMap_, point, 2, 0, 2);
+                frontierMap_.at<cv::Vec3b>(i.y,i.x)[0] = 0;
+                frontierMap_.at<cv::Vec3b>(i.y,i.x)[1] = 0;
+                frontierMap_.at<cv::Vec3b>(i.y,i.x)[2] = 255;
             }
 
-            cv::Point pt;
-            pt.x = ogMapReferenceGoalPose_.x;
-            pt.y = ogMapReferenceGoalPose_.y;
-            cv::Point robotPos;
-            robotPos.x = ROBOT_LOCATION_CELL_X;
-            robotPos.y = ROBOT_LOCATION_CELL_Y;
+            frontierMap_.at<cv::Vec3b>(ogMapReferenceGoalPose_.y,ogMapReferenceGoalPose_.x)[0] = 255;
+            frontierMap_.at<cv::Vec3b>(ogMapReferenceGoalPose_.y,ogMapReferenceGoalPose_.x)[1] = 0;
+            frontierMap_.at<cv::Vec3b>(ogMapReferenceGoalPose_.y,ogMapReferenceGoalPose_.x)[2] = 0;
+
+            cvImageFbe_.image = frontierMap_;
+            imageFbePublisher_.publish(cvImageFbe_.toImageMsg());
             // Draw a circle at the goal pose and draw the robot location
-            cv::circle(frontierMap_, pt, 10, 0,1);
-            cv::circle(frontierMap_,robotPos,3,0,3);
+            cv::circle(frontierMap_,cv::Point(ogMapReferenceGoalPose_.x,ogMapReferenceGoalPose_.y), 10, 0,1);
+            cv::circle(frontierMap_,cv::Point(ROBOT_LOCATION_CELL_X,ROBOT_LOCATION_CELL_Y),2,0,2);
             cv::imshow("frontierMap_", frontierMap_);
             cv::imshow("ogMap", OgMap_);
-            cv::waitKey(2);
+            imgBuffer_.imgMtx.unlock();
+            cv::waitKey(10000);
         }
-        cvImageFbe_.image = frontierMap_;
-        imageFbePublisher_.publish(cvImageFbe_.toImageMsg());
-//        std::this_thread::sleep_for(std::chrono::milliseconds(10000));
     }
 }
 
@@ -253,7 +258,6 @@ void FrontierExploration::odomCallBack(const nav_msgs::OdometryConstPtr& msg)
     if(poseBuffer.buffer.size() > 5)
         poseBuffer.buffer.pop_front();
     poseBuffer.mtx.unlock();
-//        cout << "odom returned attributes: x = " << currentPose.x << ", y = " << currentPose.y << ", yaw = " << currentPose.yaw << endl;
 }
 
 

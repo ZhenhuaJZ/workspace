@@ -29,7 +29,37 @@ TEST(FrontierGoalTest, Pass)
 
 TEST(FrontierSeenByGoalTest, Pass)
 {
+    cv::Mat testMap(200,200,CV_8UC1,255);
+    testMap.at<uchar>(30,150) = 127;
+    testMap.at<uchar>(50,120) = 127;
+    ros::NodeHandle nh;
+    FrontierExploration testFrontier(nh);
+    FrontierExploration::OgPose pose;
+    // Test a single unexplored cell inside a map of free space.
+    pose = testFrontier.computeFontierCell(testMap);
+    testFrontier.computeFrontierAtGoal();
+    std::deque<FrontierExploration::OgPose> dequePoses = testFrontier.getGoalFrontierCells();
+    // Test another a single unexplored cell inside a map of free space.
 
+    pose = dequePoses.front();
+    dequePoses.pop_front();
+    ASSERT_EQ(50,pose.y);
+    ASSERT_EQ(119,pose.x);
+
+    pose = dequePoses.front();
+    dequePoses.pop_front();
+    ASSERT_EQ(50,pose.y);
+    ASSERT_EQ(121,pose.x);
+
+    pose = dequePoses.front();
+    dequePoses.pop_front();
+    ASSERT_EQ(49,pose.y);
+    ASSERT_EQ(120,pose.x);
+
+    pose = dequePoses.front();
+    dequePoses.pop_front();
+    ASSERT_EQ(51,pose.y);
+    ASSERT_EQ(120,pose.x);
 }
 
 
